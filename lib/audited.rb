@@ -18,7 +18,7 @@ module Audited
     end
   end
 
-  @ignored_attributes = %w(lock_version created_at updated_at created_on updated_on)
+  @ignored_attributes = %w(lock_audit_version created_at updated_at created_on updated_on)
 
   @current_user_method = :current_user
   @auditing_enabled = true

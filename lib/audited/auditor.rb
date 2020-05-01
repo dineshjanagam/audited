@@ -24,7 +24,7 @@ module Audited
       # * +except+ - Excludes fields from being saved in the audit log.
       #   By default, Audited will audit all but these fields:
       #
-      #     [self.primary_key, inheritance_column, 'lock_version', 'created_at', 'updated_at']
+      #     [self.primary_key, inheritance_column, 'lock_audit_version', 'created_at', 'updated_at']
       #   You can add to those by passing one or an array of fields to skip.
       #
       #     class User < ActiveRecord::Base
@@ -67,7 +67,8 @@ module Audited
           before_destroy :require_comment if audited_options[:on].include?(:destroy)
         end
 
-        has_many :audits, -> { order(version: :asc) }, as: :auditable, class_name: Audited.audit_class.name, inverse_of: :auditable
+        has_many :audits, -> { order(audit_version: :asc) }, as: :auditable, class_name: Audited.audit_class.name, inverse_of: :auditable
+        
         Audited.audit_class.audited_class_names << to_s
 
         after_create :audit_create    if audited_options[:on].include?(:create)
@@ -119,28 +120,28 @@ module Audited
       #
       #   user.revisions.each do |revision|
       #     user.name
-      #     user.version
+      #     user.audit_version
       #   end
       #
-      def revisions(from_version = 1)
-        return [] unless audits.from_version(from_version).exists?
+      def revisions(from_audit_version = 1)
+        return [] unless audits.from_version(from_audit_version).exists?
 
-        all_audits = audits.select([:audited_changes, :version]).to_a
-        targeted_audits = all_audits.select { |audit| audit.version >= from_version }
+        all_audits = audits.select([:audited_changes, :audit_version]).to_a
+        targeted_audits = all_audits.select { |audit| audit.audit_version >= from_audit_version }
 
         previous_attributes = reconstruct_attributes(all_audits - targeted_audits)
 
         targeted_audits.map do |audit|
           previous_attributes.merge!(audit.new_attributes)
-          revision_with(previous_attributes.merge!(version: audit.version))
+          revision_with(previous_attributes.merge!(audit_version: audit.audit_version))
         end
       end
 
       # Get a specific revision specified by the version number, or +:previous+
       # Returns nil for versions greater than revisions count
-      def revision(version)
-        if version == :previous || self.audits.last.version >= version
-          revision_with Audited.audit_class.reconstruct_attributes(audits_to(version))
+      def revision(audit_version)
+        if audit_version == :previous || self.audits.last.audit_version >= audit_version
+          revision_with Audited.audit_class.reconstruct_attributes(audits_to(audit_version))
         end
       end
 
@@ -171,7 +172,7 @@ module Audited
 
         transaction do
           combine_target.save!
-          audits_to_combine.unscope(:limit).where("version < ?", combine_target.version).delete_all
+          audits_to_combine.unscope(:limit).where("audit_version < ?", combine_target.audit_version).delete_all
         end
       end
 
@@ -226,16 +227,16 @@ module Audited
         end
       end
 
-      def audits_to(version = nil)
-        if version == :previous
-          version = if self.audit_version
+      def audits_to(audit_version = nil)
+        if audit_version == :previous
+          audit_version = if self.audit_version
                       self.audit_version - 1
                     else
                       previous = audits.descending.offset(1).first
                       previous ? previous.version : 1
                     end
         end
-        audits.to_version(version)
+        audits.to_version(audit_version)
       end
 
       def audit_create
